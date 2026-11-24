@@ -1,0 +1,65 @@
+name: Extract project archives
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/extract-project-archives.yml']
+permissions:
+  contents: write
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate and extract ZIP archives
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path, PurePosixPath
+          import stat, shutil, zipfile
+          archives = sorted(Path('.').glob('mudaqqiq-project-*.zip'))
+          assert len(archives) == 7, 'Expected seven project archives'
+          root = Path('extracted')
+          assert not root.exists(), 'Refusing to overwrite existing extracted directory'
+          total = 0
+          count = 0
+          for archive in archives:
+              dest = root / archive.stem
+              dest.mkdir(parents=True, exist_ok=False)
+              seen = set()
+              with zipfile.ZipFile(archive) as z:
+                  for info in z.infolist():
+                      p = PurePosixPath(info.filename)
+                      parts = p.parts
+                      if not parts or p.is_absolute() or any(x in ('..', '.git') or ':' in x or chr(92) in x for x in parts):
+                          raise ValueError(f'Unsafe archive path: {info.filename}')
+                      mode = (info.external_attr >> 16) & 0xffff
+                      if stat.S_IFMT(mode) not in (0, stat.S_IFREG, stat.S_IFDIR):
+                          raise ValueError(f'Unsupported archive entry: {info.filename}')
+                      target = dest.joinpath(*parts)
+                      if info.is_dir():
+                          target.mkdir(parents=True, exist_ok=True)
+                          continue
+                      if target in seen or target.exists():
+                          raise ValueError(f'Duplicate archive entry: {info.filename}')
+                      seen.add(target)
+                      total += info.file_size
+                      count += 1
+                      if info.file_size > 95_000_000 or total > 500_000_000 or count > 15000:
+                          raise ValueError('Extraction size limit exceeded')
+                      target.parent.mkdir(parents=True, exist_ok=True)
+                      with z.open(info) as src, target.open('xb') as out:
+                          shutil.copyfileobj(src, out)
+                      assert target.stat().st_size == info.file_size
+              print(f'{archive}: {len(seen)} files')
+          print(f'Total: {count} files, {total} bytes')
+          PY
+      - name: Commit extracted files
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -f -- extracted/
+          git diff --cached --quiet && exit 0
+          git commit -m "Extract project archives for browsing"
+          git push origin HEAD:main
