@@ -1,0 +1,1 @@
+Keep the seated feet, chest, neckerchief and torso anchored. The fox leads with nose and both original plush eyes. Pitch or yaw only its articulated head, with natural ear follow-through. Keep the cream muzzle and smile visible. Keep its eye construction, fixed lighting, and neckerchief.
